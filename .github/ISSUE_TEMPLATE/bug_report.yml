@@ -1,0 +1,41 @@
+name: Bug report
+description: Something in GoldenCI isn't working as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including the failing job/step name.
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Minimal workflow that reproduces it
+      description: The `.yml` that calls GoldenCI, trimmed to the smallest failing case.
+      render: yaml
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: GoldenCI version
+      placeholder: v1, v1.0.0, or a commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: language
+    attributes:
+      label: Language
+      options:
+        - go
+        - node
+        - python
+        - auto
+    validations:
+      required: true
+  - type: input
+    id: run-url
+    attributes:
+      label: Link to the failing Actions run (if public)
