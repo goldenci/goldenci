@@ -120,50 +120,66 @@ runs:
         LANGUAGE: ${{ steps.detect.outputs.language }}
       run: bash "${{ github.action_path }}/internal/scripts/install-deps.sh"
 
-    # Run twice: once with exit code suppressed to produce the issue-count
-    # file, once for real so a lint failure fails the step (hard gate).
-    - name: Lint
+    - name: Lint (go)
+      id: lint-go
+      if: inputs.lint == 'true' && steps.detect.outputs.language == 'go'
+      continue-on-error: true
+      uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+      with:
+        working-directory: ${{ inputs.working-directory }}
+        args: --timeout=5m
+
+    - name: Lint (node)
+      id: lint-node
+      if: inputs.lint == 'true' && steps.detect.outputs.language == 'node'
+      continue-on-error: true
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: npx eslint . --ignore-pattern '.goldenci-tools/**'
+
+    - name: Lint (python)
+      id: lint-python
+      if: inputs.lint == 'true' && steps.detect.outputs.language == 'python'
+      continue-on-error: true
+      uses: astral-sh/ruff-action@278981a28ce3188b1e39527901f38254bf3aac89 # v4.1.0
+      with:
+        src: ${{ inputs.working-directory }}
+        args: check --exclude .goldenci-tools
+
+    - name: Count lint issues
       id: lint
-      if: inputs.lint == 'true'
+      if: always() && inputs.lint == 'true'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         GOLDENCI_LANGUAGE: ${{ steps.detect.outputs.language }}
+        LINT_OUTCOME: ${{ steps.lint-go.outcome }}${{ steps.lint-node.outcome }}${{ steps.lint-python.outcome }}
       run: |
-        set -uo pipefail
+        set -euo pipefail
         issues=""
-        rc=0
         case "$GOLDENCI_LANGUAGE" in
           go)
-            if ! command -v golangci-lint >/dev/null 2>&1; then
-              curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
-                | sh -s -- -b "$(go env GOPATH)/bin"
-              PATH="$(go env GOPATH)/bin:$PATH"
-              export PATH
-            fi
-            golangci-lint run --timeout=5m --issues-exit-code=0 --output.json.path=golangci.json \
-              || golangci-lint run --timeout=5m --issues-exit-code=0 --out-format=json > golangci.json
+            golangci-lint run --issues-exit-code=0 --output.json.path=golangci.json \
+              || golangci-lint run --issues-exit-code=0 --out-format=json > golangci.json
             issues="$(jq '.Issues | length' golangci.json)"
-            golangci-lint run --timeout=5m || rc=$?
             ;;
           node)
             npx eslint . -f json -o eslint.json --ignore-pattern '.goldenci-tools/**' || true
             issues="$(jq '[.[].messages[]] | length' eslint.json)"
-            npx eslint . --ignore-pattern '.goldenci-tools/**' || rc=$?
             ;;
           python)
-            command -v ruff >/dev/null 2>&1 || python3 -m pip install --quiet ruff
-            ruff check --exclude .goldenci-tools --output-format=json --exit-zero > ruff.json
+            ruff check --output-format=json --exit-zero --exclude .goldenci-tools > ruff.json
             issues="$(jq 'length' ruff.json)"
-            ruff check --exclude .goldenci-tools || rc=$?
             ;;
         esac
         printf 'issues=%s\n' "${issues:-0}" >> "$GITHUB_OUTPUT"
-        if [ "$rc" -ne 0 ]; then
-          printf 'lint\tfail\t%s issues\n' "${issues:-0}" >> "${RUNNER_TEMP}/goldenci-stages.tsv"
-          echo "lint FAILED with ${issues:-0} issue(s)" >&2
-          exit "$rc"
-        fi
+        case "$LINT_OUTCOME" in
+          *failure*)
+            printf 'lint\tfail\t%s issues\n' "${issues:-0}" >> "${RUNNER_TEMP}/goldenci-stages.tsv"
+            echo "lint FAILED with ${issues:-0} issue(s)" >&2
+            exit 1
+            ;;
+        esac
         printf 'lint\tpass\t%s issues\n' "${issues:-0}" >> "${RUNNER_TEMP}/goldenci-stages.tsv"
 
     - name: Unit tests
