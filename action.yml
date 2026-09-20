@@ -281,26 +281,45 @@ runs:
         printf 'findings=%s\n' "$findings" >> "$GITHUB_OUTPUT"
         printf '%s\n' "$findings" > "${RUNNER_TEMP}/goldenci-sast-count"
 
+    - name: govulncheck (go)
+      id: govulncheck
+      if: inputs.security-scan == 'true' && steps.detect.outputs.language == 'go'
+      continue-on-error: true
+      uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1.1.0
+      with:
+        work-dir: ${{ inputs.working-directory }}
+        go-version-file: ${{ inputs.working-directory }}/go.mod
+
+    - name: pip-audit (python)
+      id: pip-audit
+      if: inputs.security-scan == 'true' && steps.detect.outputs.language == 'python'
+      continue-on-error: true
+      uses: pypa/gh-action-pip-audit@1220774d901786e6f652ae159f7b6bc8fea6d266 # v1.1.0
+      with:
+        inputs: ${{ inputs.working-directory }}
+
     - name: Dependency vulnerability scan
       if: inputs.security-scan == 'true'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         GOLDENCI_LANGUAGE: ${{ steps.detect.outputs.language }}
+        GOVULNCHECK_OUTCOME: ${{ steps.govulncheck.outcome }}
+        PIP_AUDIT_OUTCOME: ${{ steps.pip-audit.outcome }}
       run: |
         set -uo pipefail
         rc=0
         case "$GOLDENCI_LANGUAGE" in
           go)
-            go install golang.org/x/vuln/cmd/govulncheck@latest
-            "$(go env GOPATH)/bin/govulncheck" ./... || rc=$?
+            # golang/govulncheck-action reports pass/fail only, via its step outcome.
+            [ "$GOVULNCHECK_OUTCOME" = "success" ] || rc=1
             ;;
           node)
             npm audit --audit-level=high || rc=$?
             ;;
           python)
-            python3 -m pip install --quiet pip-audit
-            python3 -m pip_audit || rc=$?
+            # pypa/gh-action-pip-audit reports pass/fail only, via its step outcome.
+            [ "$PIP_AUDIT_OUTCOME" = "success" ] || rc=1
             ;;
         esac
         sast="$(cat "${RUNNER_TEMP}/goldenci-sast-count" 2>/dev/null || echo 0)"

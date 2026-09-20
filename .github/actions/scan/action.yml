@@ -91,6 +91,13 @@ runs:
         work-dir: ${{ inputs.working-directory }}
         go-version-file: ${{ inputs.working-directory }}/go.mod
 
+    - id: pip-audit
+      if: inputs.language == 'python'
+      continue-on-error: true
+      uses: pypa/gh-action-pip-audit@1220774d901786e6f652ae159f7b6bc8fea6d266 # v1.1.0
+      with:
+        inputs: ${{ inputs.working-directory }}
+
     - id: vulns
       if: always()
       shell: bash
@@ -98,6 +105,7 @@ runs:
       env:
         LANGUAGE: ${{ inputs.language }}
         GOVULNCHECK_OUTCOME: ${{ steps.govulncheck.outcome }}
+        PIP_AUDIT_OUTCOME: ${{ steps.pip-audit.outcome }}
       run: |
         set -euo pipefail
         findings=0
@@ -118,14 +126,12 @@ runs:
             [ "$findings" -gt 0 ] && status="failed"
             ;;
           python)
-            python -m pip install pip-audit
-            pip-audit -f json -o pip-audit.json || true
-            if [ -s pip-audit.json ]; then
-              findings="$(jq 'if type == "array"
-                              then [.[] | .vulns[]?] | length
-                              else [.dependencies[]? | .vulns[]?] | length end' pip-audit.json)"
+            # pypa/gh-action-pip-audit exposes no finding count, only
+            # pass/fail, so `1` here means "at least one".
+            if [ "$PIP_AUDIT_OUTCOME" != "success" ]; then
+              findings=1
+              status="failed"
             fi
-            [ "$findings" -gt 0 ] && status="failed"
             ;;
         esac
         echo "vuln-findings=$findings" >> "$GITHUB_OUTPUT"

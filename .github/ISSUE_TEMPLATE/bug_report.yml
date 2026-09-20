@@ -29,10 +29,11 @@ body:
     attributes:
       label: Language
       options:
+        - auto
         - go
         - node
         - python
-        - auto
+      default: 0
     validations:
       required: true
   - type: input
