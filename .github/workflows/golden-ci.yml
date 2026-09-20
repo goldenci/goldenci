@@ -77,6 +77,16 @@ on:
 permissions:
   contents: read
 
+# Every job below resolves which ref's .github/actions/* sub-actions to
+# check out (into .goldenci-tools) from github.job_workflow_ref, so a
+# caller pinned to @v1.2.0 gets that exact version's sub-actions, not
+# whatever main happens to be. github.job_workflow_ref is only populated
+# for a *cross-repo* reusable-workflow call, though — it is empty when
+# this workflow calls itself by local path (as selfcheck.yml does), so
+# that case falls back to $GITHUB_SHA, the commit actually under test.
+# (It used to fall back to the literal "v1", which meant selfcheck was
+# silently testing the last release's sub-actions instead of the current
+# commit — exactly backwards for a "dogfood the current commit" check.)
 jobs:
   detect:
     name: detect
@@ -98,7 +108,7 @@ jobs:
           repo="${ref%%/.github/*}"
           gitref="${ref##*@}"
           if [ -z "$repo" ] || [ "$repo" = "$ref" ]; then repo="goldenci/goldenci"; fi
-          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="v1"; fi
+          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="$GITHUB_SHA"; fi
           echo "repo=$repo" >> "$GITHUB_OUTPUT"
           echo "ref=$gitref" >> "$GITHUB_OUTPUT"
 
@@ -137,7 +147,7 @@ jobs:
           repo="${ref%%/.github/*}"
           gitref="${ref##*@}"
           if [ -z "$repo" ] || [ "$repo" = "$ref" ]; then repo="goldenci/goldenci"; fi
-          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="v1"; fi
+          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="$GITHUB_SHA"; fi
           echo "repo=$repo" >> "$GITHUB_OUTPUT"
           echo "ref=$gitref" >> "$GITHUB_OUTPUT"
 
@@ -187,7 +197,7 @@ jobs:
           repo="${ref%%/.github/*}"
           gitref="${ref##*@}"
           if [ -z "$repo" ] || [ "$repo" = "$ref" ]; then repo="goldenci/goldenci"; fi
-          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="v1"; fi
+          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="$GITHUB_SHA"; fi
           echo "repo=$repo" >> "$GITHUB_OUTPUT"
           echo "ref=$gitref" >> "$GITHUB_OUTPUT"
 
@@ -255,7 +265,7 @@ jobs:
           repo="${ref%%/.github/*}"
           gitref="${ref##*@}"
           if [ -z "$repo" ] || [ "$repo" = "$ref" ]; then repo="goldenci/goldenci"; fi
-          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="v1"; fi
+          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="$GITHUB_SHA"; fi
           echo "repo=$repo" >> "$GITHUB_OUTPUT"
           echo "ref=$gitref" >> "$GITHUB_OUTPUT"
 
@@ -304,7 +314,7 @@ jobs:
           repo="${ref%%/.github/*}"
           gitref="${ref##*@}"
           if [ -z "$repo" ] || [ "$repo" = "$ref" ]; then repo="goldenci/goldenci"; fi
-          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="v1"; fi
+          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="$GITHUB_SHA"; fi
           echo "repo=$repo" >> "$GITHUB_OUTPUT"
           echo "ref=$gitref" >> "$GITHUB_OUTPUT"
 
@@ -353,7 +363,7 @@ jobs:
           repo="${ref%%/.github/*}"
           gitref="${ref##*@}"
           if [ -z "$repo" ] || [ "$repo" = "$ref" ]; then repo="goldenci/goldenci"; fi
-          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="v1"; fi
+          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="$GITHUB_SHA"; fi
           echo "repo=$repo" >> "$GITHUB_OUTPUT"
           echo "ref=$gitref" >> "$GITHUB_OUTPUT"
 
@@ -392,7 +402,7 @@ jobs:
           repo="${ref%%/.github/*}"
           gitref="${ref##*@}"
           if [ -z "$repo" ] || [ "$repo" = "$ref" ]; then repo="goldenci/goldenci"; fi
-          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="v1"; fi
+          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="$GITHUB_SHA"; fi
           echo "repo=$repo" >> "$GITHUB_OUTPUT"
           echo "ref=$gitref" >> "$GITHUB_OUTPUT"
 
@@ -450,7 +460,7 @@ jobs:
           repo="${ref%%/.github/*}"
           gitref="${ref##*@}"
           if [ -z "$repo" ] || [ "$repo" = "$ref" ]; then repo="goldenci/goldenci"; fi
-          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="v1"; fi
+          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="$GITHUB_SHA"; fi
           echo "repo=$repo" >> "$GITHUB_OUTPUT"
           echo "ref=$gitref" >> "$GITHUB_OUTPUT"
 

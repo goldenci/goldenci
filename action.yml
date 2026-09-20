@@ -99,6 +99,12 @@ runs:
       with:
         go-version-file: ${{ inputs.working-directory }}/go.mod
         cache: true
+        # go.mod is always present; go.sum is not (a module with no
+        # external deps has none) — list both so hashFiles always
+        # resolves at least one file instead of erroring on zero matches.
+        cache-dependency-path: |
+          ${{ inputs.working-directory }}/go.sum
+          ${{ inputs.working-directory }}/go.mod
 
     - name: Set up Node
       id: setup-node
