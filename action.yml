@@ -1,0 +1,338 @@
+# Copyright 2026 GoldenCI Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: 'GoldenCI'
+description: 'Golden-path CI for Go, Node, and Python: language detection, cached toolchain, lint, tests with a coverage gate, build, and vulnerability scan in a single step.'
+author: 'GoldenCI Contributors'
+branding:
+  icon: 'award'
+  color: 'yellow'
+
+# Inputs are always strings; booleans default to 'true'/'false' and are
+# compared as strings. No `review-env` here — an ephemeral environment
+# needs multiple jobs; use golden-ci.yml for that.
+inputs:
+  language:
+    description: 'Language to build: go, node, python, or auto'
+    required: false
+    default: 'auto'
+  lint:
+    description: 'Run lint / code quality'
+    required: false
+    default: 'true'
+  test:
+    description: 'Run unit tests'
+    required: false
+    default: 'true'
+  coverage-threshold:
+    description: 'Static coverage floor, percent'
+    required: false
+    default: '70'
+  build:
+    description: 'Run build'
+    required: false
+    default: 'true'
+  security-scan:
+    description: 'Run SAST + dependency vulnerability scan'
+    required: false
+    default: 'true'
+  working-directory:
+    description: 'Directory to operate in'
+    required: false
+    default: '.'
+  setup-toolchain:
+    description: 'Install the language toolchain (set false if the caller already did)'
+    required: false
+    default: 'true'
+
+outputs:
+  language:
+    description: 'Detected (or explicitly requested) language: go | node | python'
+    value: ${{ steps.detect.outputs.language }}
+  coverage:
+    description: 'Unit-test coverage percent, one decimal place; empty when tests were skipped'
+    value: ${{ steps.coverage.outputs.coverage }}
+  coverage-passed:
+    description: 'true when coverage met coverage-threshold'
+    value: ${{ steps.coverage.outputs.passed }}
+  lint-issues:
+    description: 'Number of lint / code-quality issues found; empty when lint was skipped'
+    value: ${{ steps.lint.outputs.issues }}
+  sast-findings:
+    description: 'Number of SAST findings; empty when the security scan was skipped'
+    value: ${{ steps.sast.outputs.findings }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Detect language
+      id: detect
+      shell: bash
+      env:
+        INPUT_LANGUAGE: ${{ inputs.language }}
+        WORKDIR: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        : > "${RUNNER_TEMP}/goldenci-stages.tsv"
+        lang="$(bash "${{ github.action_path }}/internal/scripts/detect-language.sh")"
+        printf 'detect\tok\tlanguage=%s\n' "$lang" >> "${RUNNER_TEMP}/goldenci-stages.tsv"
+
+    - name: Set up Go
+      id: setup-go
+      if: inputs.setup-toolchain == 'true' && steps.detect.outputs.language == 'go'
+      uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+      with:
+        go-version-file: ${{ inputs.working-directory }}/go.mod
+        cache: true
+
+    - name: Set up Node
+      id: setup-node
+      if: inputs.setup-toolchain == 'true' && steps.detect.outputs.language == 'node'
+      uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+    - name: Set up Python
+      id: setup-python
+      if: inputs.setup-toolchain == 'true' && steps.detect.outputs.language == 'python'
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      with:
+        python-version: '3.12'
+        cache: pip
+
+    - name: Install deps
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        LANGUAGE: ${{ steps.detect.outputs.language }}
+      run: bash "${{ github.action_path }}/internal/scripts/install-deps.sh"
+
+    # Run twice: once with exit code suppressed to produce the issue-count
+    # file, once for real so a lint failure fails the step (hard gate).
+    - name: Lint
+      id: lint
+      if: inputs.lint == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GOLDENCI_LANGUAGE: ${{ steps.detect.outputs.language }}
+      run: |
+        set -uo pipefail
+        issues=""
+        rc=0
+        case "$GOLDENCI_LANGUAGE" in
+          go)
+            if ! command -v golangci-lint >/dev/null 2>&1; then
+              curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+                | sh -s -- -b "$(go env GOPATH)/bin"
+              PATH="$(go env GOPATH)/bin:$PATH"
+              export PATH
+            fi
+            golangci-lint run --timeout=5m --issues-exit-code=0 --output.json.path=golangci.json \
+              || golangci-lint run --timeout=5m --issues-exit-code=0 --out-format=json > golangci.json
+            issues="$(jq '.Issues | length' golangci.json)"
+            golangci-lint run --timeout=5m || rc=$?
+            ;;
+          node)
+            npx eslint . -f json -o eslint.json --ignore-pattern '.goldenci-tools/**' || true
+            issues="$(jq '[.[].messages[]] | length' eslint.json)"
+            npx eslint . --ignore-pattern '.goldenci-tools/**' || rc=$?
+            ;;
+          python)
+            command -v ruff >/dev/null 2>&1 || python3 -m pip install --quiet ruff
+            ruff check --exclude .goldenci-tools --output-format=json --exit-zero > ruff.json
+            issues="$(jq 'length' ruff.json)"
+            ruff check --exclude .goldenci-tools || rc=$?
+            ;;
+        esac
+        printf 'issues=%s\n' "${issues:-0}" >> "$GITHUB_OUTPUT"
+        if [ "$rc" -ne 0 ]; then
+          printf 'lint\tfail\t%s issues\n' "${issues:-0}" >> "${RUNNER_TEMP}/goldenci-stages.tsv"
+          echo "lint FAILED with ${issues:-0} issue(s)" >&2
+          exit "$rc"
+        fi
+        printf 'lint\tpass\t%s issues\n' "${issues:-0}" >> "${RUNNER_TEMP}/goldenci-stages.tsv"
+
+    - name: Unit tests
+      if: inputs.test == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GOLDENCI_LANGUAGE: ${{ steps.detect.outputs.language }}
+      run: |
+        set -euo pipefail
+        case "$GOLDENCI_LANGUAGE" in
+          go)
+            go test ./... -covermode=atomic -coverprofile=coverage.out
+            ;;
+          node)
+            npm test -- --coverage --coverageReporters=json-summary --coverageReporters=text
+            ;;
+          python)
+            python3 -m pytest --cov=. --cov-report=xml --cov-report=term --ignore=.goldenci-tools
+            ;;
+        esac
+
+    # COVERAGE_FILE is unset — coverage-gate.sh defaults it per language.
+    - name: Coverage gate
+      id: coverage
+      if: inputs.test == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        LANGUAGE: ${{ steps.detect.outputs.language }}
+        THRESHOLD: ${{ inputs.coverage-threshold }}
+        LABEL: unit
+      run: |
+        set -uo pipefail
+        pct="$(bash "${{ github.action_path }}/internal/scripts/coverage-gate.sh")"
+        rc=$?
+        if [ "$rc" -ne 0 ]; then
+          printf 'test\tfail\tcoverage %s%% (threshold %s)\n' "${pct:-n/a}" "$THRESHOLD" \
+            >> "${RUNNER_TEMP}/goldenci-stages.tsv"
+          exit "$rc"
+        fi
+        printf 'test\tpass\tcoverage %s%% (threshold %s)\n' "${pct:-n/a}" "$THRESHOLD" \
+          >> "${RUNNER_TEMP}/goldenci-stages.tsv"
+
+    - name: Build
+      if: inputs.build == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GOLDENCI_LANGUAGE: ${{ steps.detect.outputs.language }}
+      run: |
+        set -euo pipefail
+        case "$GOLDENCI_LANGUAGE" in
+          go)     go build ./... ;;
+          node)   npm run build --if-present ;;
+          python) python -m compileall -q . ;;
+        esac
+        printf 'build\tpass\t\n' >> "${RUNNER_TEMP}/goldenci-stages.tsv"
+
+    # upload: never — no security-events permission needed. Only add it if
+    # you change upload:.
+    - name: Map language for CodeQL
+      id: sast-lang
+      if: inputs.security-scan == 'true'
+      shell: bash
+      env:
+        GOLDENCI_LANGUAGE: ${{ steps.detect.outputs.language }}
+      run: |
+        set -euo pipefail
+        case "$GOLDENCI_LANGUAGE" in
+          go)     ql=go ;;
+          node)   ql=javascript-typescript ;;
+          python) ql=python ;;
+          *)      echo "no CodeQL mapping for '$GOLDENCI_LANGUAGE'" >&2; exit 2 ;;
+        esac
+        printf 'codeql-language=%s\n' "$ql" >> "$GITHUB_OUTPUT"
+
+    - name: Initialize CodeQL
+      if: inputs.security-scan == 'true'
+      uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+      with:
+        languages: ${{ steps.sast-lang.outputs.codeql-language }}
+
+    - name: Analyze with CodeQL
+      if: inputs.security-scan == 'true'
+      uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+      with:
+        output: sarif-results
+        upload: never
+
+    - name: Count SAST findings
+      id: sast
+      if: inputs.security-scan == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        findings="$(jq -s 'map(.runs[].results | length) | add // 0' sarif-results/*.sarif 2>/dev/null || echo 0)"
+        [ -n "$findings" ] && [ "$findings" != "null" ] || findings=0
+        printf 'findings=%s\n' "$findings" >> "$GITHUB_OUTPUT"
+        printf '%s\n' "$findings" > "${RUNNER_TEMP}/goldenci-sast-count"
+
+    - name: Dependency vulnerability scan
+      if: inputs.security-scan == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GOLDENCI_LANGUAGE: ${{ steps.detect.outputs.language }}
+      run: |
+        set -uo pipefail
+        rc=0
+        case "$GOLDENCI_LANGUAGE" in
+          go)
+            go install golang.org/x/vuln/cmd/govulncheck@latest
+            "$(go env GOPATH)/bin/govulncheck" ./... || rc=$?
+            ;;
+          node)
+            npm audit --audit-level=high || rc=$?
+            ;;
+          python)
+            python3 -m pip install --quiet pip-audit
+            python3 -m pip_audit || rc=$?
+            ;;
+        esac
+        sast="$(cat "${RUNNER_TEMP}/goldenci-sast-count" 2>/dev/null || echo 0)"
+        if [ "$rc" -ne 0 ]; then
+          printf 'scan\tfail\tsast %s, vulns reported\n' "$sast" >> "${RUNNER_TEMP}/goldenci-stages.tsv"
+          echo "dependency vulnerability scan FAILED (exit $rc)" >&2
+          exit "$rc"
+        fi
+        printf 'scan\tpass\tsast %s, vulns 0\n' "$sast" >> "${RUNNER_TEMP}/goldenci-stages.tsv"
+
+    - name: Write summary
+      if: always()
+      shell: bash
+      env:
+        WANT_LINT: ${{ inputs.lint }}
+        WANT_TEST: ${{ inputs.test }}
+        WANT_BUILD: ${{ inputs.build }}
+        WANT_SCAN: ${{ inputs.security-scan }}
+      run: |
+        set -uo pipefail
+        tsv="${RUNNER_TEMP}/goldenci-stages.tsv"
+        [ -f "$tsv" ] || : > "$tsv"
+
+        row() {
+          # $1 = stage, $2 = 'true' when the stage was requested
+          local stage="$1" wanted="$2" line
+          line="$(grep -m1 "^${stage}$(printf '\t')" "$tsv" || true)"
+          if [ -n "$line" ]; then
+            printf '%s\n' "$line"
+          elif [ "$wanted" = "true" ]; then
+            printf '%s\tfail\t\n' "$stage"
+          else
+            printf '%s\tskipped\t\n' "$stage"
+          fi
+        }
+
+        {
+          echo "## GoldenCI"
+          echo
+          echo "| Stage | Result | Detail |"
+          echo "|---|---|---|"
+          {
+            row detect true
+            row lint  "$WANT_LINT"
+            row test  "$WANT_TEST"
+            row build "$WANT_BUILD"
+            row scan  "$WANT_SCAN"
+          } | while IFS="$(printf '\t')" read -r stage result detail; do
+            printf '| %s | %s | %s |\n' "$stage" "$result" "$detail"
+          done
+        } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"

@@ -1,0 +1,19 @@
+# Illustrative only: GitHub reads workflows exclusively from the repository-root
+# .github/workflows/, so this nested copy never runs. It is here as the exact
+# file a real consumer of GoldenCI would drop into their own repo root.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: goldenci/goldenci/.github/workflows/golden-ci.yml@v1
+    with:
+      language: python
+      coverage-threshold: 70

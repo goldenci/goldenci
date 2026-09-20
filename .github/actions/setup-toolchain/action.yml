@@ -1,0 +1,81 @@
+# Copyright 2026 GoldenCI Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: 'GoldenCI / setup-toolchain'
+description: 'Installs and caches the Go, Node, or Python toolchain for the detected language.'
+
+inputs:
+  language:
+    required: true
+  working-directory:
+    required: false
+    default: '.'
+
+runs:
+  using: 'composite'
+  steps:
+    - if: inputs.language == 'go'
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: ${{ inputs.working-directory }}/go.mod
+        cache: true
+
+    # Prefer .nvmrc, then engines.node, else 22.
+    - id: nodever
+      if: inputs.language == 'node'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        WORKDIR: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        if [ -f .nvmrc ]; then
+          echo "version-file=${WORKDIR}/.nvmrc" >> "$GITHUB_OUTPUT"
+          echo "version=" >> "$GITHUB_OUTPUT"
+        elif [ -f package.json ] && jq -e '.engines.node // empty' package.json >/dev/null 2>&1; then
+          echo "version-file=${WORKDIR}/package.json" >> "$GITHUB_OUTPUT"
+          echo "version=" >> "$GITHUB_OUTPUT"
+        else
+          echo "version-file=" >> "$GITHUB_OUTPUT"
+          echo "version=22" >> "$GITHUB_OUTPUT"
+        fi
+
+    - if: inputs.language == 'node'
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: ${{ steps.nodever.outputs.version }}
+        node-version-file: ${{ steps.nodever.outputs.version-file }}
+        cache: npm
+        cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+    - if: inputs.language == 'python' && hashFiles(format('{0}/pyproject.toml', inputs.working-directory)) != ''
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version-file: ${{ inputs.working-directory }}/pyproject.toml
+        cache: pip
+        cache-dependency-path: |
+          ${{ inputs.working-directory }}/requirements*.txt
+          ${{ inputs.working-directory }}/pyproject.toml
+          ${{ inputs.working-directory }}/setup.py
+          ${{ inputs.working-directory }}/setup.cfg
+
+    - if: inputs.language == 'python' && hashFiles(format('{0}/pyproject.toml', inputs.working-directory)) == ''
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: '3.12'
+        cache: pip
+        cache-dependency-path: |
+          ${{ inputs.working-directory }}/requirements*.txt
+          ${{ inputs.working-directory }}/setup.py
+          ${{ inputs.working-directory }}/setup.cfg

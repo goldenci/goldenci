@@ -1,0 +1,156 @@
+# Copyright 2026 GoldenCI Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: 'GoldenCI / scan'
+description: 'SAST via CodeQL and a dependency vulnerability scan; fails on error-severity or high-severity findings.'
+
+inputs:
+  language:
+    required: true
+  working-directory:
+    required: false
+    default: '.'
+
+outputs:
+  sast-findings:
+    value: ${{ steps.sast.outputs.sast-findings }}
+  vuln-findings:
+    value: ${{ steps.vulns.outputs.vuln-findings }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: ql
+      shell: bash
+      env:
+        LANGUAGE: ${{ inputs.language }}
+      run: |
+        set -euo pipefail
+        case "$LANGUAGE" in
+          go)     ql="go" ;;
+          node)   ql="javascript-typescript" ;;
+          python) ql="python" ;;
+          *)      echo "unsupported language '$LANGUAGE'" >&2; exit 1 ;;
+        esac
+        echo "language=$ql" >> "$GITHUB_OUTPUT"
+
+    # upload: never avoids GitHub Advanced Security and the security-events
+    # permission, keeping this action secret- and permission-free.
+    - uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+      with:
+        languages: ${{ steps.ql.outputs.language }}
+
+    - uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+      with:
+        output: sarif-results
+        upload: never
+
+    - id: sast
+      if: always()
+      shell: bash
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        files=(sarif-results/*.sarif)
+        total=0
+        errors=0
+        if [ "${#files[@]}" -gt 0 ]; then
+          total="$(jq -s '[.[] | .runs[]? | (.results // []) | length] | add // 0' "${files[@]}")"
+          # SARIF often omits result.level and defers to the rule's
+          # defaultConfiguration.level, so resolve it before filtering.
+          errors="$(jq -s '
+            [ .[] | .runs[]?
+              | ( [ (.tool.driver.rules // [])[],
+                    ((.tool.extensions // [])[] | (.rules // [])[]) ]
+                  | map({ key: (.id // ""),
+                          value: (.defaultConfiguration.level // "warning") })
+                  | from_entries ) as $lv
+              | .results[]?
+              | (.level // $lv[(.ruleId // "")] // "warning")
+            ] | map(select(. == "error")) | length' "${files[@]}")"
+        fi
+        echo "sast-findings=$total" >> "$GITHUB_OUTPUT"
+        echo "sast-errors=$errors" >> "$GITHUB_OUTPUT"
+
+    - id: govulncheck
+      if: inputs.language == 'go'
+      continue-on-error: true
+      uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1.1.0
+      with:
+        work-dir: ${{ inputs.working-directory }}
+        go-version-file: ${{ inputs.working-directory }}/go.mod
+
+    - id: vulns
+      if: always()
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        LANGUAGE: ${{ inputs.language }}
+        GOVULNCHECK_OUTCOME: ${{ steps.govulncheck.outcome }}
+      run: |
+        set -euo pipefail
+        findings=0
+        status="ok"
+        case "$LANGUAGE" in
+          go)
+            # golang/govulncheck-action exposes no finding count, only
+            # pass/fail, so `1` here means "at least one".
+            if [ "$GOVULNCHECK_OUTCOME" != "success" ]; then
+              findings=1
+              status="failed"
+            fi
+            ;;
+          node)
+            npm audit --json --audit-level=high > npm-audit.json || true
+            findings="$(jq '[.metadata.vulnerabilities.critical, .metadata.vulnerabilities.high]
+                            | map(. // 0) | add // 0' npm-audit.json 2>/dev/null || echo 0)"
+            [ "$findings" -gt 0 ] && status="failed"
+            ;;
+          python)
+            python -m pip install pip-audit
+            pip-audit -f json -o pip-audit.json || true
+            if [ -s pip-audit.json ]; then
+              findings="$(jq 'if type == "array"
+                              then [.[] | .vulns[]?] | length
+                              else [.dependencies[]? | .vulns[]?] | length end' pip-audit.json)"
+            fi
+            [ "$findings" -gt 0 ] && status="failed"
+            ;;
+        esac
+        echo "vuln-findings=$findings" >> "$GITHUB_OUTPUT"
+        echo "vuln-status=$status" >> "$GITHUB_OUTPUT"
+
+    - if: always()
+      shell: bash
+      env:
+        SAST_ERRORS: ${{ steps.sast.outputs.sast-errors }}
+        SAST_TOTAL: ${{ steps.sast.outputs.sast-findings }}
+        VULN_STATUS: ${{ steps.vulns.outputs.vuln-status }}
+        VULN_FINDINGS: ${{ steps.vulns.outputs.vuln-findings }}
+      run: |
+        set -euo pipefail
+        failed=0
+        if [ "${SAST_ERRORS:-0}" -gt 0 ] 2>/dev/null; then
+          echo "::error::SAST gate failed: ${SAST_ERRORS} error-severity finding(s) (${SAST_TOTAL} total)"
+          failed=1
+        fi
+        if [ "${VULN_STATUS:-ok}" = "failed" ]; then
+          echo "::error::dependency vulnerability gate failed: ${VULN_FINDINGS} finding(s) at or above high severity"
+          failed=1
+        fi
+        {
+          printf -- '- sast findings: **%s** (%s at error severity)\n' "${SAST_TOTAL:-0}" "${SAST_ERRORS:-0}"
+          printf -- '- dependency vulnerabilities: **%s**\n' "${VULN_FINDINGS:-0}"
+        } >> "$GITHUB_STEP_SUMMARY"
+        exit "$failed"

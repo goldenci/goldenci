@@ -1,0 +1,30 @@
+{
+  "name": "goldenci-node-example",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Minimal CommonJS module used to exercise GoldenCI's Node path.",
+  "license": "MIT",
+  "scripts": {
+    "lint": "eslint .",
+    "test": "jest",
+    "build": "echo no build step"
+  },
+  "devDependencies": {
+    "eslint": "^9",
+    "@eslint/js": "^9",
+    "jest": "^29"
+  },
+  "jest": {
+    "collectCoverage": true,
+    "collectCoverageFrom": [
+      "greet.js"
+    ],
+    "coverageReporters": [
+      "json-summary",
+      "text"
+    ]
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

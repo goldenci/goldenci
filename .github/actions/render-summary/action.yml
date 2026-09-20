@@ -1,0 +1,98 @@
+# Copyright 2026 GoldenCI Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: 'GoldenCI / render-summary'
+description: 'Renders the GoldenCI job-summary table. Never fails the run.'
+
+inputs:
+  detect-result: { required: false, default: '' }
+  lint-result: { required: false, default: '' }
+  lint-issues: { required: false, default: '' }
+  test-result: { required: false, default: '' }
+  coverage-unit: { required: false, default: '' }
+  coverage-integration: { required: false, default: '' }
+  threshold: { required: false, default: '' }
+  build-result: { required: false, default: '' }
+  scan-result: { required: false, default: '' }
+  sast-findings: { required: false, default: '' }
+  vuln-findings: { required: false, default: '' }
+  review-env-result: { required: false, default: '' }
+  review-env-url: { required: false, default: '' }
+  integration-result: { required: false, default: '' }
+  language: { required: false, default: '' }
+
+runs:
+  using: 'composite'
+  steps:
+    - shell: bash
+      env:
+        DETECT_RESULT: ${{ inputs.detect-result }}
+        LINT_RESULT: ${{ inputs.lint-result }}
+        TEST_RESULT: ${{ inputs.test-result }}
+        BUILD_RESULT: ${{ inputs.build-result }}
+        SCAN_RESULT: ${{ inputs.scan-result }}
+        REVIEW_ENV_RESULT: ${{ inputs.review-env-result }}
+        INTEGRATION_RESULT: ${{ inputs.integration-result }}
+        LANGUAGE: ${{ inputs.language }}
+        LINT_ISSUES: ${{ inputs.lint-issues }}
+        COVERAGE_UNIT: ${{ inputs.coverage-unit }}
+        COVERAGE_INTEGRATION: ${{ inputs.coverage-integration }}
+        THRESHOLD: ${{ inputs.threshold }}
+        SAST_FINDINGS: ${{ inputs.sast-findings }}
+        VULN_FINDINGS: ${{ inputs.vuln-findings }}
+        REVIEW_ENV_URL: ${{ inputs.review-env-url }}
+      run: |
+        set -euo pipefail
+
+        # success -> pass, failure -> fail, skipped|cancelled -> skipped.
+        verdict() {
+          case "${1:-skipped}" in
+            success)             printf 'pass' ;;
+            failure)             printf 'fail' ;;
+            skipped | cancelled) printf 'skipped' ;;
+            '')                  printf 'skipped' ;;
+            *)                   printf '%s' "$1" ;;
+          esac
+        }
+
+        detect_verdict="$(verdict "$DETECT_RESULT")"
+        [ "$detect_verdict" = "pass" ] && detect_verdict="ok"
+
+        coverage_detail=""
+        if [ -n "${COVERAGE_UNIT:-}" ]; then
+          coverage_detail="coverage ${COVERAGE_UNIT}% (threshold ${THRESHOLD})"
+        elif [ "$(verdict "$TEST_RESULT")" != "skipped" ]; then
+          coverage_detail="coverage not reported (threshold ${THRESHOLD})"
+        fi
+
+        integration_detail=""
+        if [ -n "${COVERAGE_INTEGRATION:-}" ]; then
+          integration_detail="coverage ${COVERAGE_INTEGRATION}%"
+        fi
+
+        {
+          printf '## GoldenCI\n\n'
+          printf '| Stage | Result | Detail |\n'
+          printf '|---|---|---|\n'
+          printf '| detect | %s | language=%s |\n' "$detect_verdict" "${LANGUAGE:-unknown}"
+          printf '| lint | %s | %s |\n' \
+            "$(verdict "$LINT_RESULT")" \
+            "$( [ -n "${LINT_ISSUES:-}" ] && printf '%s issues' "$LINT_ISSUES" || true )"
+          printf '| test | %s | %s |\n' "$(verdict "$TEST_RESULT")" "$coverage_detail"
+          printf '| build | %s | |\n' "$(verdict "$BUILD_RESULT")"
+          printf '| scan | %s | %s |\n' \
+            "$(verdict "$SCAN_RESULT")" "sast ${SAST_FINDINGS:-0}, vulns ${VULN_FINDINGS:-0}"
+          printf '| review-env | %s | %s |\n' "$(verdict "$REVIEW_ENV_RESULT")" "${REVIEW_ENV_URL:-}"
+          printf '| integration-test | %s | %s |\n' "$(verdict "$INTEGRATION_RESULT")" "$integration_detail"
+        } >> "$GITHUB_STEP_SUMMARY"

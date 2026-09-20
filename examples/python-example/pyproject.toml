@@ -1,0 +1,25 @@
+[project]
+name = "goldenci-python-example"
+version = "0.0.0"
+description = "Minimal module used to exercise GoldenCI's Python path."
+requires-python = ">=3.10"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["greet"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["greet"]
+omit = ["test_*.py"]

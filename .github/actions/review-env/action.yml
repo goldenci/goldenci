@@ -1,0 +1,57 @@
+# Copyright 2026 GoldenCI Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: 'GoldenCI / review-env'
+description: 'Runs the caller-supplied command that provisions an ephemeral review environment.'
+
+inputs:
+  cmd:
+    required: false
+    default: ''
+  working-directory:
+    required: false
+    default: '.'
+
+outputs:
+  url:
+    value: ${{ steps.up.outputs.url }}
+
+runs:
+  using: 'composite'
+  steps:
+    - if: inputs.cmd == ''
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::notice::review-env is enabled but review-env-cmd is empty; nothing was provisioned"
+        printf -- '- review-env: no `review-env-cmd` configured — skipped\n' >> "$GITHUB_STEP_SUMMARY"
+
+    # The command is contractually required to write url=<URL> to
+    # $GITHUB_OUTPUT so callers and the workflow output can use it.
+    - id: up
+      if: inputs.cmd != ''
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: ${{ inputs.cmd }}
+
+    - if: inputs.cmd != ''
+      shell: bash
+      env:
+        REVIEW_ENV_URL: ${{ steps.up.outputs.url }}
+      run: |
+        set -euo pipefail
+        if [ -z "${REVIEW_ENV_URL:-}" ]; then
+          echo "::warning::review-env-cmd did not write url=<URL> to \$GITHUB_OUTPUT"
+        fi
+        printf -- '- review-env: %s\n' "${REVIEW_ENV_URL:-not reported}" >> "$GITHUB_STEP_SUMMARY"

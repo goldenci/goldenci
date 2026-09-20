@@ -1,0 +1,212 @@
+# Copyright 2026 GoldenCI Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Dogfooding: exercises the current commit via the local path form.
+name: selfcheck
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  meta:
+    name: meta
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      # -ignore: actionlint's bundled expression schema predates
+      # github.job_workflow_ref, a real and documented context field.
+      - name: actionlint
+        uses: reviewdog/action-actionlint@320fcdd9c860767cf17fab3b20e22e739d5d02b8 # v1.76.0
+        with:
+          reporter: github-check
+          fail_level: error
+          actionlint_flags: -ignore 'property "job_workflow_ref" is not defined'
+
+      - name: Validate action.yml parses
+        run: |
+          set -euo pipefail
+          python3 -c 'import sys, yaml; d = yaml.safe_load(open("action.yml")); assert d["runs"]["using"] == "composite", "action.yml must be a composite action"; print("action.yml ok:", len(d["runs"]["steps"]), "steps")'
+
+      - name: Validate .github/actions/*/action.yml parses
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(.github/actions/*/action.yml)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "no .github/actions/*/action.yml found" >&2
+            exit 1
+          fi
+          for f in "${files[@]}"; do
+            python3 -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1])); assert d["runs"]["using"] == "composite", f"{sys.argv[1]} must be a composite action"; print(sys.argv[1], "ok:", len(d["runs"]["steps"]), "steps")' "$f"
+          done
+
+      - name: shellcheck
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # v2.0.0
+        with:
+          severity: style
+          scandir: ./internal/scripts
+
+  # Regression suite for internal/scripts/*.sh. No fixture files on disk —
+  # every fixture is a heredoc into $RUNNER_TEMP.
+  script-contracts:
+    name: script-contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go (for `go tool cover` in the go coverage path)
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: examples/go-example/go.mod
+          cache: false
+
+      - name: Assert script contracts
+        run: |
+          set -uo pipefail
+
+          S=internal/scripts
+          T="$RUNNER_TEMP"
+          failed=0
+
+          pass() { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
+          fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; failed=$((failed + 1)); }
+          check() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1 (expected '$3', got '$2')"; fi; }
+
+          echo "== 1. detect-language.sh detects all three example languages"
+          for pair in "examples/go-example:go" "examples/node-example:node" "examples/python-example:python"; do
+            dir="${pair%%:*}"; want="${pair##*:}"
+            got="$(WORKDIR="$dir" bash "$S/detect-language.sh" 2>/dev/null)"
+            check "detect $dir" "$got" "$want"
+          done
+
+          echo "== 2. detect-language.sh exits 1 on a directory with no markers"
+          mkdir -p "$T/empty"
+          rc=0
+          WORKDIR="$T/empty" bash "$S/detect-language.sh" >/dev/null 2>&1 || rc=$?
+          check "detect empty dir exit code" "$rc" "1"
+
+          echo "== 3. detect-language.sh exits 2 on an unsupported language"
+          rc=0
+          INPUT_LANGUAGE=rust bash "$S/detect-language.sh" >/dev/null 2>&1 || rc=$?
+          check "detect INPUT_LANGUAGE=rust exit code" "$rc" "2"
+
+          echo "== 4. coverage-gate.sh passes at 82.4 vs threshold 70"
+          cat > "$T/coverage-summary.json" <<'JSON'
+          {"total":{"lines":{"total":100,"covered":82,"skipped":0,"pct":82.4}}}
+          JSON
+          rc=0
+          out="$(LANGUAGE=node COVERAGE_FILE="$T/coverage-summary.json" THRESHOLD=70 \
+                 bash "$S/coverage-gate.sh" 2>/dev/null)" || rc=$?
+          check "coverage-gate 82.4/70 stdout" "$out" "82.4"
+          check "coverage-gate 82.4/70 exit code" "$rc" "0"
+
+          echo "== 5. coverage-gate.sh fails at 82.4 vs threshold 90 with the documented stderr"
+          rc=0
+          err="$(LANGUAGE=node COVERAGE_FILE="$T/coverage-summary.json" THRESHOLD=90 \
+                 bash "$S/coverage-gate.sh" 2>&1 >/dev/null)" || rc=$?
+          check "coverage-gate 82.4/90 exit code" "$rc" "1"
+          case "$err" in
+            *"is below the required"*) pass "coverage-gate stderr contains 'is below the required'" ;;
+            *) fail "coverage-gate stderr missing 'is below the required' (got: $err)" ;;
+          esac
+
+          echo "== 6. coverage-gate.sh with ALLOW_MISSING=true and no file: exit 0, empty stdout"
+          rc=0
+          out="$(LANGUAGE=node COVERAGE_FILE="$T/does-not-exist.json" ALLOW_MISSING=true \
+                 bash "$S/coverage-gate.sh" 2>/dev/null)" || rc=$?
+          check "coverage-gate ALLOW_MISSING exit code" "$rc" "0"
+          check "coverage-gate ALLOW_MISSING stdout is empty" "$out" ""
+
+          echo
+          if [ "$failed" -ne 0 ]; then
+            echo "script-contracts: $failed assertion(s) FAILED" >&2
+            exit 1
+          fi
+          echo "script-contracts: all assertions passed"
+
+  # security-scan: false — the scan path is exercised by the scan job's own
+  # existence; skipping it here avoids CodeQL cost on trivial examples.
+  example-go:
+    name: example-go
+    needs: meta
+    uses: ./.github/workflows/golden-ci.yml
+    with:
+      language: go
+      working-directory: examples/go-example
+      coverage-threshold: 70
+      security-scan: false
+
+  example-node:
+    name: example-node
+    needs: meta
+    uses: ./.github/workflows/golden-ci.yml
+    with:
+      language: node
+      working-directory: examples/node-example
+      coverage-threshold: 70
+      security-scan: false
+
+  example-python:
+    name: example-python
+    needs: meta
+    uses: ./.github/workflows/golden-ci.yml
+    with:
+      language: python
+      working-directory: examples/python-example
+      coverage-threshold: 70
+      security-scan: false
+
+  composite-smoke:
+    name: composite-smoke
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Run GoldenCI composite action
+        id: goldenci
+        uses: ./
+        with:
+          language: go
+          working-directory: examples/go-example
+          coverage-threshold: '70'
+          security-scan: 'false'
+
+      - name: Assert composite outputs
+        env:
+          OUT_LANGUAGE: ${{ steps.goldenci.outputs.language }}
+          OUT_COVERAGE: ${{ steps.goldenci.outputs.coverage }}
+          OUT_PASSED: ${{ steps.goldenci.outputs.coverage-passed }}
+          OUT_LINT: ${{ steps.goldenci.outputs.lint-issues }}
+        run: |
+          set -euo pipefail
+          echo "language=$OUT_LANGUAGE coverage=$OUT_COVERAGE passed=$OUT_PASSED lint-issues=$OUT_LINT"
+          [ "$OUT_LANGUAGE" = "go" ] || { echo "expected outputs.language=go, got '$OUT_LANGUAGE'" >&2; exit 1; }
+          [ "$OUT_PASSED" = "true" ] || { echo "expected outputs.coverage-passed=true, got '$OUT_PASSED'" >&2; exit 1; }

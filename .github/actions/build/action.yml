@@ -1,0 +1,52 @@
+# Copyright 2026 GoldenCI Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: 'GoldenCI / build'
+description: 'Builds the project, and a container image when a Dockerfile is present.'
+
+inputs:
+  language:
+    required: true
+  working-directory:
+    required: false
+    default: '.'
+
+runs:
+  using: 'composite'
+  steps:
+    - shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        LANGUAGE: ${{ inputs.language }}
+      run: |
+        set -euo pipefail
+        case "$LANGUAGE" in
+          go)     go build ./... ;;
+          node)   npm run build --if-present ;;
+          python) python -m compileall -q . ;;
+        esac
+
+    - if: hashFiles(format('{0}/Dockerfile', inputs.working-directory)) != ''
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+    - if: hashFiles(format('{0}/Dockerfile', inputs.working-directory)) != ''
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      with:
+        context: ${{ inputs.working-directory }}
+        file: ${{ inputs.working-directory }}/Dockerfile
+        push: false
+        load: true
+        tags: goldenci-local:${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max

@@ -1,0 +1,480 @@
+# Copyright 2026 GoldenCI Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: GoldenCI / CI
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        description: "go | node | python | auto"
+        type: string
+        required: false
+        default: auto
+      lint:
+        type: boolean
+        required: false
+        default: true
+      test:
+        type: boolean
+        required: false
+        default: true
+      coverage-threshold:
+        type: number
+        required: false
+        default: 70
+      build:
+        type: boolean
+        required: false
+        default: true
+      review-env:
+        type: boolean
+        required: false
+        default: false
+      security-scan:
+        type: boolean
+        required: false
+        default: true
+      working-directory:
+        type: string
+        required: false
+        default: "."
+      review-env-cmd:
+        description: "Must print url=<URL> to $GITHUB_OUTPUT"
+        type: string
+        required: false
+        default: ""
+      integration-test-cmd:
+        description: "Receives REVIEW_ENV_URL in env"
+        type: string
+        required: false
+        default: ""
+    outputs:
+      language:
+        value: ${{ jobs.detect.outputs.language }}
+      coverage-unit:
+        value: ${{ jobs.test.outputs.coverage }}
+      coverage-integration:
+        value: ${{ jobs.integration-test.outputs.coverage }}
+      lint-issues:
+        value: ${{ jobs.lint.outputs.issues }}
+      sast-findings:
+        value: ${{ jobs.scan.outputs.sast-findings }}
+      review-env-url:
+        value: ${{ jobs.review-env.outputs.url }}
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: detect
+    runs-on: ubuntu-latest
+    outputs:
+      language: ${{ steps.detect.outputs.language }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: goldenci-ref
+        shell: bash
+        env:
+          JOB_WORKFLOW_REF: ${{ github.job_workflow_ref }}
+        run: |
+          set -euo pipefail
+          ref="${JOB_WORKFLOW_REF}"
+          repo="${ref%%/.github/*}"
+          gitref="${ref##*@}"
+          if [ -z "$repo" ] || [ "$repo" = "$ref" ]; then repo="goldenci/goldenci"; fi
+          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="v1"; fi
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "ref=$gitref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.goldenci-ref.outputs.repo }}
+          ref: ${{ steps.goldenci-ref.outputs.ref }}
+          path: .goldenci-tools
+          persist-credentials: false
+
+      - id: detect
+        uses: ./.goldenci-tools/.github/actions/detect-language
+        with:
+          language: ${{ inputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+
+  lint:
+    name: lint
+    needs: detect
+    if: ${{ inputs.lint }}
+    runs-on: ubuntu-latest
+    outputs:
+      issues: ${{ steps.lint.outputs.issues }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: goldenci-ref
+        shell: bash
+        env:
+          JOB_WORKFLOW_REF: ${{ github.job_workflow_ref }}
+        run: |
+          set -euo pipefail
+          ref="${JOB_WORKFLOW_REF}"
+          repo="${ref%%/.github/*}"
+          gitref="${ref##*@}"
+          if [ -z "$repo" ] || [ "$repo" = "$ref" ]; then repo="goldenci/goldenci"; fi
+          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="v1"; fi
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "ref=$gitref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.goldenci-ref.outputs.repo }}
+          ref: ${{ steps.goldenci-ref.outputs.ref }}
+          path: .goldenci-tools
+          persist-credentials: false
+
+      - uses: ./.goldenci-tools/.github/actions/setup-toolchain
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - uses: ./.goldenci-tools/.github/actions/install-deps
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - id: lint
+        uses: ./.goldenci-tools/.github/actions/lint
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+
+  test:
+    name: test
+    needs: detect
+    if: ${{ inputs.test }}
+    runs-on: ubuntu-latest
+    outputs:
+      coverage: ${{ steps.gate.outputs.coverage }}
+      passed: ${{ steps.gate.outputs.passed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: goldenci-ref
+        shell: bash
+        env:
+          JOB_WORKFLOW_REF: ${{ github.job_workflow_ref }}
+        run: |
+          set -euo pipefail
+          ref="${JOB_WORKFLOW_REF}"
+          repo="${ref%%/.github/*}"
+          gitref="${ref##*@}"
+          if [ -z "$repo" ] || [ "$repo" = "$ref" ]; then repo="goldenci/goldenci"; fi
+          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="v1"; fi
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "ref=$gitref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.goldenci-ref.outputs.repo }}
+          ref: ${{ steps.goldenci-ref.outputs.ref }}
+          path: .goldenci-tools
+          persist-credentials: false
+
+      - uses: ./.goldenci-tools/.github/actions/setup-toolchain
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - uses: ./.goldenci-tools/.github/actions/install-deps
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - uses: ./.goldenci-tools/.github/actions/run-unit-tests
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - id: covpath
+        uses: ./.goldenci-tools/.github/actions/coverage-path
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - id: gate
+        uses: ./.goldenci-tools/.github/actions/coverage-gate
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+          coverage-file: ${{ steps.covpath.outputs.file }}
+          threshold: ${{ inputs.coverage-threshold }}
+          label: unit
+
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: goldenci-coverage-unit
+          path: ${{ steps.covpath.outputs.artifact }}
+          if-no-files-found: warn
+
+  build:
+    name: build
+    needs: detect
+    if: ${{ inputs.build }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: goldenci-ref
+        shell: bash
+        env:
+          JOB_WORKFLOW_REF: ${{ github.job_workflow_ref }}
+        run: |
+          set -euo pipefail
+          ref="${JOB_WORKFLOW_REF}"
+          repo="${ref%%/.github/*}"
+          gitref="${ref##*@}"
+          if [ -z "$repo" ] || [ "$repo" = "$ref" ]; then repo="goldenci/goldenci"; fi
+          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="v1"; fi
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "ref=$gitref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.goldenci-ref.outputs.repo }}
+          ref: ${{ steps.goldenci-ref.outputs.ref }}
+          path: .goldenci-tools
+          persist-credentials: false
+
+      - uses: ./.goldenci-tools/.github/actions/setup-toolchain
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - uses: ./.goldenci-tools/.github/actions/install-deps
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - uses: ./.goldenci-tools/.github/actions/build
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+
+  scan:
+    name: scan
+    needs: detect
+    if: ${{ inputs.security-scan }}
+    runs-on: ubuntu-latest
+    outputs:
+      sast-findings: ${{ steps.scan.outputs.sast-findings }}
+      vuln-findings: ${{ steps.scan.outputs.vuln-findings }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: goldenci-ref
+        shell: bash
+        env:
+          JOB_WORKFLOW_REF: ${{ github.job_workflow_ref }}
+        run: |
+          set -euo pipefail
+          ref="${JOB_WORKFLOW_REF}"
+          repo="${ref%%/.github/*}"
+          gitref="${ref##*@}"
+          if [ -z "$repo" ] || [ "$repo" = "$ref" ]; then repo="goldenci/goldenci"; fi
+          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="v1"; fi
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "ref=$gitref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.goldenci-ref.outputs.repo }}
+          ref: ${{ steps.goldenci-ref.outputs.ref }}
+          path: .goldenci-tools
+          persist-credentials: false
+
+      - uses: ./.goldenci-tools/.github/actions/setup-toolchain
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - uses: ./.goldenci-tools/.github/actions/install-deps
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - id: scan
+        uses: ./.goldenci-tools/.github/actions/scan
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+
+  review-env:
+    name: review-env
+    needs: [detect, build]
+    if: ${{ inputs.review-env }}
+    runs-on: ubuntu-latest
+    outputs:
+      url: ${{ steps.review-env.outputs.url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: goldenci-ref
+        shell: bash
+        env:
+          JOB_WORKFLOW_REF: ${{ github.job_workflow_ref }}
+        run: |
+          set -euo pipefail
+          ref="${JOB_WORKFLOW_REF}"
+          repo="${ref%%/.github/*}"
+          gitref="${ref##*@}"
+          if [ -z "$repo" ] || [ "$repo" = "$ref" ]; then repo="goldenci/goldenci"; fi
+          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="v1"; fi
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "ref=$gitref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.goldenci-ref.outputs.repo }}
+          ref: ${{ steps.goldenci-ref.outputs.ref }}
+          path: .goldenci-tools
+          persist-credentials: false
+
+      - id: review-env
+        uses: ./.goldenci-tools/.github/actions/review-env
+        with:
+          cmd: ${{ inputs.review-env-cmd }}
+          working-directory: ${{ inputs.working-directory }}
+
+  integration-test:
+    name: integration-test
+    needs: [detect, review-env]
+    if: ${{ inputs.review-env }}
+    runs-on: ubuntu-latest
+    outputs:
+      coverage: ${{ steps.gate.outputs.coverage }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: goldenci-ref
+        shell: bash
+        env:
+          JOB_WORKFLOW_REF: ${{ github.job_workflow_ref }}
+        run: |
+          set -euo pipefail
+          ref="${JOB_WORKFLOW_REF}"
+          repo="${ref%%/.github/*}"
+          gitref="${ref##*@}"
+          if [ -z "$repo" ] || [ "$repo" = "$ref" ]; then repo="goldenci/goldenci"; fi
+          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="v1"; fi
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "ref=$gitref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.goldenci-ref.outputs.repo }}
+          ref: ${{ steps.goldenci-ref.outputs.ref }}
+          path: .goldenci-tools
+          persist-credentials: false
+
+      - uses: ./.goldenci-tools/.github/actions/setup-toolchain
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - uses: ./.goldenci-tools/.github/actions/integration-tests
+        with:
+          cmd: ${{ inputs.integration-test-cmd }}
+          working-directory: ${{ inputs.working-directory }}
+          review-env-url: ${{ needs.review-env.outputs.url }}
+
+      - id: covpath
+        uses: ./.goldenci-tools/.github/actions/coverage-path
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+          prefix: integration-coverage/
+
+      # Integration coverage is recorded, not statically gated — the
+      # validator's ratchet gates it. THRESHOLD=0 and allow-missing=true
+      # make this a no-op when integration-test-cmd was never set.
+      - id: gate
+        uses: ./.goldenci-tools/.github/actions/coverage-gate
+        with:
+          language: ${{ needs.detect.outputs.language }}
+          working-directory: ${{ inputs.working-directory }}
+          coverage-file: ${{ steps.covpath.outputs.file }}
+          threshold: "0"
+          label: integration
+          allow-missing: "true"
+
+  summary:
+    name: summary
+    needs: [detect, lint, test, build, scan, review-env, integration-test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - id: goldenci-ref
+        shell: bash
+        env:
+          JOB_WORKFLOW_REF: ${{ github.job_workflow_ref }}
+        run: |
+          set -euo pipefail
+          ref="${JOB_WORKFLOW_REF}"
+          repo="${ref%%/.github/*}"
+          gitref="${ref##*@}"
+          if [ -z "$repo" ] || [ "$repo" = "$ref" ]; then repo="goldenci/goldenci"; fi
+          if [ -z "$gitref" ] || [ "$gitref" = "$ref" ]; then gitref="v1"; fi
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "ref=$gitref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.goldenci-ref.outputs.repo }}
+          ref: ${{ steps.goldenci-ref.outputs.ref }}
+          path: .goldenci-tools
+          persist-credentials: false
+
+      - uses: ./.goldenci-tools/.github/actions/render-summary
+        with:
+          detect-result: ${{ needs.detect.result }}
+          lint-result: ${{ needs.lint.result }}
+          lint-issues: ${{ needs.lint.outputs.issues }}
+          test-result: ${{ needs.test.result }}
+          coverage-unit: ${{ needs.test.outputs.coverage }}
+          coverage-integration: ${{ needs.integration-test.outputs.coverage }}
+          threshold: ${{ inputs.coverage-threshold }}
+          build-result: ${{ needs.build.result }}
+          scan-result: ${{ needs.scan.result }}
+          sast-findings: ${{ needs.scan.outputs.sast-findings }}
+          vuln-findings: ${{ needs.scan.outputs.vuln-findings }}
+          review-env-result: ${{ needs.review-env.result }}
+          review-env-url: ${{ needs.review-env.outputs.url }}
+          integration-result: ${{ needs.integration-test.result }}
+          language: ${{ needs.detect.outputs.language }}

@@ -1,0 +1,55 @@
+# Copyright 2026 GoldenCI Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: 'GoldenCI / coverage-gate'
+description: 'Parses a coverage artifact and gates it against a threshold.'
+
+inputs:
+  language:
+    required: true
+  working-directory:
+    required: false
+    default: '.'
+  coverage-file:
+    required: false
+    default: ''
+  threshold:
+    required: false
+    default: '0'
+  label:
+    required: false
+    default: 'unit'
+  allow-missing:
+    required: false
+    default: 'false'
+
+outputs:
+  coverage:
+    value: ${{ steps.gate.outputs.coverage }}
+  passed:
+    value: ${{ steps.gate.outputs.passed }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: gate
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        LANGUAGE: ${{ inputs.language }}
+        COVERAGE_FILE: ${{ inputs.coverage-file }}
+        THRESHOLD: ${{ inputs.threshold }}
+        LABEL: ${{ inputs.label }}
+        ALLOW_MISSING: ${{ inputs.allow-missing }}
+      run: bash "${{ github.action_path }}/../../../internal/scripts/coverage-gate.sh"

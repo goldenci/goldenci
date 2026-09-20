@@ -1,0 +1,8 @@
+# golangci-lint v2 configuration.
+# `default: standard` enables errcheck, govet, ineffassign, staticcheck and
+# unused — the same set the v1 `linters.enable` list below would have given:
+#   linters: { enable: [govet, staticcheck, errcheck, ineffassign, unused] }
+version: "2"
+
+linters:
+  default: standard

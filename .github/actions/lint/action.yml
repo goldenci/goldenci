@@ -1,0 +1,73 @@
+# Copyright 2026 GoldenCI Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: 'GoldenCI / lint'
+description: 'Runs the language-native linter and counts issues.'
+
+inputs:
+  language:
+    required: true
+  working-directory:
+    required: false
+    default: '.'
+
+outputs:
+  issues:
+    value: ${{ steps.count.outputs.issues }}
+
+runs:
+  using: 'composite'
+  steps:
+    - if: inputs.language == 'go'
+      uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+      with:
+        working-directory: ${{ inputs.working-directory }}
+        args: --timeout=5m
+
+    - if: inputs.language == 'node'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: npx eslint . --ignore-pattern '.goldenci-tools/**'
+
+    - if: inputs.language == 'python'
+      uses: astral-sh/ruff-action@278981a28ce3188b1e39527901f38254bf3aac89 # v4.1.0
+      with:
+        src: ${{ inputs.working-directory }}
+        args: check --exclude .goldenci-tools
+
+    - id: count
+      if: always()
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        LANGUAGE: ${{ inputs.language }}
+      run: |
+        set -euo pipefail
+        issues=""
+        case "$LANGUAGE" in
+          go)
+            golangci-lint run --issues-exit-code=0 --output.json.path=golangci.json \
+              || golangci-lint run --issues-exit-code=0 --out-format=json > golangci.json
+            issues="$(jq '.Issues | length' golangci.json)"
+            ;;
+          node)
+            npx eslint . -f json -o eslint.json || true
+            issues="$(jq '[.[].messages[]] | length' eslint.json)"
+            ;;
+          python)
+            ruff check --output-format=json --exit-zero > ruff.json
+            issues="$(jq 'length' ruff.json)"
+            ;;
+        esac
+        echo "issues=$issues" >> "$GITHUB_OUTPUT"
