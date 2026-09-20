@@ -1,0 +1,45 @@
+version: 2
+updates:
+  # Root: action.yml, .github/workflows/*.yml, .github/actions/*/action.yml
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ['*']
+    commit-message:
+      prefix: 'ci(deps)'
+
+  # Each example ships its own .github/workflows/ci.yml fixture; Dependabot's
+  # github-actions ecosystem only scans <directory>/.github/workflows, so it
+  # needs one entry per example to stay current too.
+  - package-ecosystem: github-actions
+    directory: /examples/go-example
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ['*']
+    commit-message:
+      prefix: 'ci(deps)'
+
+  - package-ecosystem: github-actions
+    directory: /examples/node-example
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ['*']
+    commit-message:
+      prefix: 'ci(deps)'
+
+  - package-ecosystem: github-actions
+    directory: /examples/python-example
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ['*']
+    commit-message:
+      prefix: 'ci(deps)'

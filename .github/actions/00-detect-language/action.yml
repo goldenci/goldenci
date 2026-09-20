@@ -31,6 +31,10 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    # Only used as a diagnostic when marker-file detection finds nothing —
+    # see the note above detect-language.sh's final error block.
+    - uses: fabasoad/setup-enry-action@b0f209311352caecf5b95ec6916cfe7e4adf1af2 # v0.4.3
+
     - id: detect
       shell: bash
       env:

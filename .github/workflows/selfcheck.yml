@@ -148,24 +148,29 @@ jobs:
           fi
           echo "script-contracts: all assertions passed"
 
-  # security-scan: false — the scan path is exercised by the scan job's own
-  # existence; skipping it here avoids CodeQL cost on trivial examples.
+  # language: auto (not hardcoded) so this also exercises the real
+  # auto-detection path — including the enry-backed diagnostic setup in
+  # 00-detect-language — the way an actual consumer would hit it.
+  #
+  # security-scan is on here (and only here) to actually run the scan job
+  # end to end — including golang/govulncheck-action — at least once;
+  # node/python leave it off to keep the other two jobs fast.
   example-go:
     name: example-go
     needs: meta
     uses: ./.github/workflows/golden-ci.yml
     with:
-      language: go
+      language: auto
       working-directory: examples/go-example
       coverage-threshold: 70
-      security-scan: false
+      security-scan: true
 
   example-node:
     name: example-node
     needs: meta
     uses: ./.github/workflows/golden-ci.yml
     with:
-      language: node
+      language: auto
       working-directory: examples/node-example
       coverage-threshold: 70
       security-scan: false
@@ -175,10 +180,25 @@ jobs:
     needs: meta
     uses: ./.github/workflows/golden-ci.yml
     with:
-      language: python
+      language: auto
       working-directory: examples/python-example
       coverage-threshold: 70
       security-scan: false
+
+  # review-env / integration-test are otherwise never exercised by any job
+  # above (all leave review-env at its default false).
+  example-review-env:
+    name: example-review-env
+    needs: meta
+    uses: ./.github/workflows/golden-ci.yml
+    with:
+      language: go
+      working-directory: examples/go-example
+      coverage-threshold: 70
+      security-scan: false
+      review-env: true
+      review-env-cmd: echo "url=https://example.invalid/review-env" >> "$GITHUB_OUTPUT"
+      integration-test-cmd: '[ -n "$REVIEW_ENV_URL" ] && echo "saw REVIEW_ENV_URL=$REVIEW_ENV_URL"'
 
   composite-smoke:
     name: composite-smoke

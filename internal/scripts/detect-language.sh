@@ -40,6 +40,11 @@ Environment:
   GITHUB_OUTPUT     when set, receives `language` and `detected`
   GOLDENCI_DEBUG    set to 1 to enable `set -x`
 
+If auto-detection finds no marker file and `enry` is on PATH (installed by
+fabasoad/setup-enry-action in the composite actions), it's used to name the
+actual dominant language in the failure message — diagnostic only, it never
+changes what's supported.
+
 Auto-detection order (first match wins; regular files directly in <workdir>):
   go.mod            -> go
   package.json      -> node
@@ -164,6 +169,20 @@ for i in "${!MARKER_FILES[@]}"; do
     exit 0
   fi
 done
+
+# No marker file matched. If `enry` (go-enry/enry, the linguist-derived
+# detector installed by fabasoad/setup-enry-action in the composite actions)
+# is on PATH, use it purely to name what was actually found, so the error is
+# "this is Rust, which isn't supported yet" instead of a bare shrug. This
+# never changes the exit code or the set of supported languages — GoldenCI
+# still only drives go/node/python end to end.
+if command -v enry >/dev/null 2>&1; then
+  enry_top="$(cd "$workdir" && enry -prog 2>/dev/null | head -n1 | awk '{print $2}')"
+  if [ -n "${enry_top:-}" ]; then
+    printf 'note: linguist-based detection (enry) reports the dominant language here is %s\n' \
+      "$enry_top" >&2
+  fi
+fi
 
 printf 'error: could not auto-detect a language in %s\n' "'$workdir'" >&2
 printf 'error: looked for these marker files, in order: %s\n' \
