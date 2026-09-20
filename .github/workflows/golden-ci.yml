@@ -110,7 +110,7 @@ jobs:
           persist-credentials: false
 
       - id: detect
-        uses: ./.goldenci-tools/.github/actions/detect-language
+        uses: ./.goldenci-tools/.github/actions/00-detect-language
         with:
           language: ${{ inputs.language }}
           working-directory: ${{ inputs.working-directory }}
@@ -148,18 +148,18 @@ jobs:
           path: .goldenci-tools
           persist-credentials: false
 
-      - uses: ./.goldenci-tools/.github/actions/setup-toolchain
+      - uses: ./.goldenci-tools/.github/actions/01-setup-toolchain
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
 
-      - uses: ./.goldenci-tools/.github/actions/install-deps
+      - uses: ./.goldenci-tools/.github/actions/02-install-deps
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
 
       - id: lint
-        uses: ./.goldenci-tools/.github/actions/lint
+        uses: ./.goldenci-tools/.github/actions/03-lint
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
@@ -198,29 +198,29 @@ jobs:
           path: .goldenci-tools
           persist-credentials: false
 
-      - uses: ./.goldenci-tools/.github/actions/setup-toolchain
+      - uses: ./.goldenci-tools/.github/actions/01-setup-toolchain
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
 
-      - uses: ./.goldenci-tools/.github/actions/install-deps
+      - uses: ./.goldenci-tools/.github/actions/02-install-deps
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
 
-      - uses: ./.goldenci-tools/.github/actions/run-unit-tests
+      - uses: ./.goldenci-tools/.github/actions/04-run-unit-tests
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
 
       - id: covpath
-        uses: ./.goldenci-tools/.github/actions/coverage-path
+        uses: ./.goldenci-tools/.github/actions/05-coverage-path
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
 
       - id: gate
-        uses: ./.goldenci-tools/.github/actions/coverage-gate
+        uses: ./.goldenci-tools/.github/actions/06-coverage-gate
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
@@ -266,17 +266,17 @@ jobs:
           path: .goldenci-tools
           persist-credentials: false
 
-      - uses: ./.goldenci-tools/.github/actions/setup-toolchain
+      - uses: ./.goldenci-tools/.github/actions/01-setup-toolchain
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
 
-      - uses: ./.goldenci-tools/.github/actions/install-deps
+      - uses: ./.goldenci-tools/.github/actions/02-install-deps
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
 
-      - uses: ./.goldenci-tools/.github/actions/build
+      - uses: ./.goldenci-tools/.github/actions/07-build
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
@@ -315,18 +315,18 @@ jobs:
           path: .goldenci-tools
           persist-credentials: false
 
-      - uses: ./.goldenci-tools/.github/actions/setup-toolchain
+      - uses: ./.goldenci-tools/.github/actions/01-setup-toolchain
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
 
-      - uses: ./.goldenci-tools/.github/actions/install-deps
+      - uses: ./.goldenci-tools/.github/actions/02-install-deps
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
 
       - id: scan
-        uses: ./.goldenci-tools/.github/actions/scan
+        uses: ./.goldenci-tools/.github/actions/08-scan
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
@@ -365,7 +365,7 @@ jobs:
           persist-credentials: false
 
       - id: review-env
-        uses: ./.goldenci-tools/.github/actions/review-env
+        uses: ./.goldenci-tools/.github/actions/09-review-env
         with:
           cmd: ${{ inputs.review-env-cmd }}
           working-directory: ${{ inputs.working-directory }}
@@ -403,19 +403,19 @@ jobs:
           path: .goldenci-tools
           persist-credentials: false
 
-      - uses: ./.goldenci-tools/.github/actions/setup-toolchain
+      - uses: ./.goldenci-tools/.github/actions/01-setup-toolchain
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
 
-      - uses: ./.goldenci-tools/.github/actions/integration-tests
+      - uses: ./.goldenci-tools/.github/actions/10-integration-tests
         with:
           cmd: ${{ inputs.integration-test-cmd }}
           working-directory: ${{ inputs.working-directory }}
           review-env-url: ${{ needs.review-env.outputs.url }}
 
       - id: covpath
-        uses: ./.goldenci-tools/.github/actions/coverage-path
+        uses: ./.goldenci-tools/.github/actions/05-coverage-path
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
@@ -425,7 +425,7 @@ jobs:
       # validator's ratchet gates it. THRESHOLD=0 and allow-missing=true
       # make this a no-op when integration-test-cmd was never set.
       - id: gate
-        uses: ./.goldenci-tools/.github/actions/coverage-gate
+        uses: ./.goldenci-tools/.github/actions/06-coverage-gate
         with:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
@@ -461,7 +461,7 @@ jobs:
           path: .goldenci-tools
           persist-credentials: false
 
-      - uses: ./.goldenci-tools/.github/actions/render-summary
+      - uses: ./.goldenci-tools/.github/actions/11-render-summary
         with:
           detect-result: ${{ needs.detect.result }}
           lint-result: ${{ needs.lint.result }}
