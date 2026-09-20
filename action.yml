@@ -13,7 +13,7 @@
 # limitations under the License.
 
 name: 'GoldenCI'
-description: 'Golden-path CI for Go, Node, and Python: language detection, cached toolchain, lint, tests with a coverage gate, build, and vulnerability scan in a single step.'
+description: 'Golden-path CI for Go, Node, and Python: lint, tests with a coverage gate, build, and vulnerability scan.'
 author: 'GoldenCI Contributors'
 branding:
   icon: 'award'
