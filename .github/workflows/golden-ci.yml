@@ -341,6 +341,23 @@ jobs:
           language: ${{ needs.detect.outputs.language }}
           working-directory: ${{ inputs.working-directory }}
 
+      # golang/govulncheck-action (inside 08-scan, go only) runs its own
+      # internal actions/checkout with clean: true, which "git clean -ffdx"s
+      # the whole workspace and deletes .goldenci-tools as an untracked
+      # directory. The scan step itself already finished fine — its
+      # action.yml was already loaded — but at job end the runner needs to
+      # re-resolve 08-scan/01-setup-toolchain on disk to run nested actions'
+      # post hooks (e.g. setup-go's cache save), and fails if it's gone.
+      # Re-checkout it here, always (cheap no-op for non-go), so it's back
+      # by the time this job ends.
+      - if: always()
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.goldenci-ref.outputs.repo }}
+          ref: ${{ steps.goldenci-ref.outputs.ref }}
+          path: .goldenci-tools
+          persist-credentials: false
+
   review-env:
     name: review-env
     needs: [detect, build]
