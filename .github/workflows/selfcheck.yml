@@ -37,7 +37,7 @@ jobs:
       # -ignore: actionlint's bundled expression schema predates
       # github.job_workflow_ref, a real and documented context field.
       - name: actionlint
-        uses: reviewdog/action-actionlint@a8ac3eea598697a830f7d8e701fc9fcbfde88974 # v1.80.0
+        uses: reviewdog/action-actionlint@48e36f54d8da326b83ab061aee2cc5e01b5ca46f # v1.80.6
         with:
           reporter: github-check
           fail_level: error
