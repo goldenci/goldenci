@@ -37,7 +37,7 @@ jobs:
       # -ignore: actionlint's bundled expression schema predates
       # github.job_workflow_ref, a real and documented context field.
       - name: actionlint
-        uses: reviewdog/action-actionlint@a8ac3eea598697a830f7d8e701fc9fcbfde88974 # v1.80.0
+        uses: reviewdog/action-actionlint@ae857e78c1b42b3d0a49637181b09d3d56d402b4 # v1.84.1
         with:
           reporter: github-check
           fail_level: error
@@ -79,7 +79,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Go (for `go tool cover` in the go coverage path)
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: examples/go-example/go.mod
           cache: false
